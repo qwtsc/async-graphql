@@ -1,33 +1,32 @@
 use crate::ID;
-use byteorder::{ReadBytesExt, BE};
 use std::convert::Infallible;
 use std::fmt::Display;
+use std::num::ParseIntError;
 
 /// Cursor type
 ///
 /// A custom scalar that serializes as a string.
 /// https://relay.dev/graphql/connections.htm#sec-Cursor
 pub trait CursorType: Sized {
-    /// Error type for `encode_cursor` and `decode_cursor`.
+    /// Error type for `decode_cursor`.
     type Error: Display;
 
     /// Decode cursor from string.
     fn decode_cursor(s: &str) -> Result<Self, Self::Error>;
 
     /// Encode cursor to string.
-    fn encode_cursor(&self) -> Result<String, Self::Error>;
+    fn encode_cursor(&self) -> String;
 }
 
 impl CursorType for usize {
-    type Error = anyhow::Error;
+    type Error = ParseIntError;
 
     fn decode_cursor(s: &str) -> Result<Self, Self::Error> {
-        let data = base64::decode(s)?;
-        Ok(data.as_slice().read_u32::<BE>()? as usize)
+        s.parse()
     }
 
-    fn encode_cursor(&self) -> Result<String, Self::Error> {
-        Ok(base64::encode((*self as u32).to_be_bytes()))
+    fn encode_cursor(&self) -> String {
+        self.to_string()
     }
 }
 
@@ -38,8 +37,8 @@ impl CursorType for String {
         Ok(s.to_string())
     }
 
-    fn encode_cursor(&self) -> Result<String, Self::Error> {
-        Ok(self.clone())
+    fn encode_cursor(&self) -> String {
+        self.clone()
     }
 }
 
@@ -50,7 +49,7 @@ impl CursorType for ID {
         Ok(s.to_string().into())
     }
 
-    fn encode_cursor(&self) -> Result<String, Self::Error> {
-        Ok(self.to_string())
+    fn encode_cursor(&self) -> String {
+        self.to_string()
     }
 }
