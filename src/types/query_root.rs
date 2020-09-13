@@ -3,15 +3,16 @@ use crate::parser::types::Field;
 use crate::resolver_utils::{resolve_object, ObjectType};
 use crate::scalars::Any;
 use crate::{
-    registry, Context, ContextSelectionSet, Error, OutputValueType, Positioned, QueryError, Result,
-    Type,
+    registry, Context, ContextSelectionSet, Error, GQLSimpleObject, OutputValueType, Positioned,
+    QueryError, Result, Type,
 };
-use async_graphql_derive::SimpleObject;
+
 use indexmap::map::IndexMap;
 use std::borrow::Cow;
 
 /// Federation service
-#[SimpleObject(internal, name = "_Service")]
+#[derive(GQLSimpleObject)]
+#[graphql(internal, name = "_Service")]
 struct Service {
     sdl: Option<String>,
 }
@@ -85,7 +86,7 @@ impl<T: ObjectType + Send + Sync> ObjectType for QueryRoot<T> {
         if ctx.item.node.name.node == "__schema" {
             if self.disable_introspection {
                 return Err(Error::Query {
-                    pos: ctx.pos,
+                    pos: ctx.item.pos,
                     path: ctx
                         .path_node
                         .as_ref()

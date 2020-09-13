@@ -4,7 +4,7 @@ use async_graphql::*;
 pub async fn test_variables() {
     struct QueryRoot;
 
-    #[Object]
+    #[GQLObject]
     impl QueryRoot {
         pub async fn int_val(&self, value: i32) -> i32 {
             value
@@ -24,7 +24,7 @@ pub async fn test_variables() {
             }
         "#,
     )
-    .variables(Variables::parse_from_json(serde_json::json!({
+    .variables(Variables::from_json(serde_json::json!({
         "intVal": 10,
          "intListVal": [1, 2, 3, 4, 5],
     })));
@@ -42,7 +42,7 @@ pub async fn test_variables() {
 pub async fn test_variable_default_value() {
     struct QueryRoot;
 
-    #[Object]
+    #[GQLObject]
     impl QueryRoot {
         pub async fn int_val(&self, value: i32) -> i32 {
             value
@@ -71,7 +71,7 @@ pub async fn test_variable_default_value() {
 pub async fn test_variable_no_value() {
     struct QueryRoot;
 
-    #[Object]
+    #[GQLObject]
     impl QueryRoot {
         pub async fn int_val(&self, value: Option<i32>) -> i32 {
             value.unwrap_or(10)
@@ -102,7 +102,7 @@ pub async fn test_variable_no_value() {
 pub async fn test_variable_null() {
     struct QueryRoot;
 
-    #[Object]
+    #[GQLObject]
     impl QueryRoot {
         pub async fn int_val(&self, value: Option<i32>) -> i32 {
             value.unwrap_or(10)
@@ -117,7 +117,7 @@ pub async fn test_variable_null() {
             }
         "#,
     )
-    .variables(Variables::parse_from_json(serde_json::json!({
+    .variables(Variables::from_json(serde_json::json!({
         "intVal": null,
     })));
     let resp = schema.execute(query).await;
@@ -131,14 +131,14 @@ pub async fn test_variable_null() {
 
 #[async_std::test]
 pub async fn test_variable_in_input_object() {
-    #[InputObject]
+    #[derive(GQLInputObject)]
     struct MyInput {
         value: i32,
     }
 
     struct QueryRoot;
 
-    #[Object]
+    #[GQLObject]
     impl QueryRoot {
         async fn test(&self, input: MyInput) -> i32 {
             input.value
@@ -151,7 +151,7 @@ pub async fn test_variable_in_input_object() {
 
     struct MutationRoot;
 
-    #[Object]
+    #[GQLObject]
     impl MutationRoot {
         async fn test(&self, input: MyInput) -> i32 {
             input.value
@@ -168,7 +168,7 @@ pub async fn test_variable_in_input_object() {
         }"#;
         let resp = schema
             .execute(
-                Request::new(query).variables(Variables::parse_from_json(serde_json::json!({
+                Request::new(query).variables(Variables::from_json(serde_json::json!({
                     "value": 10,
                 }))),
             )
@@ -189,7 +189,7 @@ pub async fn test_variable_in_input_object() {
         }"#;
         let resp = schema
             .execute(
-                Request::new(query).variables(Variables::parse_from_json(serde_json::json!({
+                Request::new(query).variables(Variables::from_json(serde_json::json!({
                     "value": 3,
                 }))),
             )
@@ -210,7 +210,7 @@ pub async fn test_variable_in_input_object() {
         }"#;
         let resp = schema
             .execute(
-                Request::new(query).variables(Variables::parse_from_json(serde_json::json!({
+                Request::new(query).variables(Variables::from_json(serde_json::json!({
                     "value": 10,
                 }))),
             )

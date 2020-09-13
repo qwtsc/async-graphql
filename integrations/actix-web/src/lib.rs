@@ -8,12 +8,14 @@ mod subscription;
 use actix_web::dev::{HttpResponseBuilder, Payload, PayloadStream};
 use actix_web::http::StatusCode;
 use actix_web::{http, web, Error, FromRequest, HttpRequest, HttpResponse, Responder};
-use async_graphql::http::{receive_body, MultipartOptions, StreamBody};
+use async_graphql::http::{receive_body, MultipartOptions};
 use async_graphql::{ParseRequestError, Request, Response};
 use futures::channel::mpsc;
 use futures::future::Ready;
-use futures::{Future, SinkExt, StreamExt, TryFutureExt};
+use futures::io::ErrorKind;
+use futures::{Future, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 use http::Method;
+use std::io;
 use std::pin::Pin;
 pub use subscription::WSSubscription;
 
@@ -39,10 +41,10 @@ impl FromRequest for GQLRequest {
         let config = req.app_data::<Self::Config>().cloned().unwrap_or_default();
 
         if req.method() == Method::GET {
-            let res = web::Query::<async_graphql::http::GQLRequest>::from_query(req.query_string());
+            let res = web::Query::<async_graphql::Request>::from_query(req.query_string());
             Box::pin(async move {
                 let gql_request = res?;
-                Ok(GQLRequest(gql_request.into_inner().into()))
+                Ok(GQLRequest(gql_request.into_inner()))
             })
         } else {
             let content_type = req
@@ -65,14 +67,19 @@ impl FromRequest for GQLRequest {
 
             Box::pin(async move {
                 Ok(GQLRequest(
-                    receive_body(content_type, StreamBody::new(rx), config)
-                        .map_err(|err| match err {
-                            ParseRequestError::PayloadTooLarge => {
-                                actix_web::error::ErrorPayloadTooLarge(err)
-                            }
-                            _ => actix_web::error::ErrorBadRequest(err),
-                        })
-                        .await?,
+                    receive_body(
+                        content_type,
+                        rx.map_err(|err| io::Error::new(ErrorKind::Other, err))
+                            .into_async_read(),
+                        config,
+                    )
+                    .map_err(|err| match err {
+                        ParseRequestError::PayloadTooLarge => {
+                            actix_web::error::ErrorPayloadTooLarge(err)
+                        }
+                        _ => actix_web::error::ErrorBadRequest(err),
+                    })
+                    .await?,
                 ))
             })
         }

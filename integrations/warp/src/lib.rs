@@ -5,17 +5,21 @@
 #![allow(clippy::needless_doctest_main)]
 #![forbid(unsafe_code)]
 
-use async_graphql::http::{GQLRequest, MultipartOptions, StreamBody};
-use async_graphql::{resolver_utils::ObjectType, Data, FieldResult, Schema, SubscriptionType};
-use futures::select;
+use async_graphql::http::MultipartOptions;
+use async_graphql::{
+    resolver_utils::ObjectType, Data, FieldResult, Request, Schema, SubscriptionType,
+};
+use futures::io::ErrorKind;
+use futures::{select, TryStreamExt};
 use futures::{SinkExt, StreamExt};
 use hyper::Method;
+use std::io;
 use std::sync::Arc;
 use warp::filters::ws::Message;
 use warp::filters::BoxedFilter;
 use warp::reject::Reject;
 use warp::reply::Response;
-use warp::{Filter, Rejection, Reply};
+use warp::{Buf, Filter, Rejection, Reply};
 
 /// Bad request error
 ///
@@ -110,15 +114,19 @@ where
              opts: Arc<MultipartOptions>,
              schema| async move {
                 if method == Method::GET {
-                    let request: GQLRequest = serde_urlencoded::from_str(&query)
+                    let request: Request = serde_urlencoded::from_str(&query)
                         .map_err(|err| warp::reject::custom(BadRequest(err.into())))?;
-                    Ok::<_, Rejection>((schema, async_graphql::Request::from(request)))
+                    Ok::<_, Rejection>((schema, request))
                 } else {
                     let request = async_graphql::http::receive_body(
                         content_type,
-                        StreamBody::new(body),
-                        MultipartOptions::clone(&opts)
-                    ).await.map_err(|err| warp::reject::custom(BadRequest(err.into())))?;
+                        futures::TryStreamExt::map_err(body, |err| io::Error::new(ErrorKind::Other, err))
+                            .map_ok(|mut buf| Buf::to_bytes(&mut buf))
+                            .into_async_read(),
+                        MultipartOptions::clone(&opts),
+                    )
+                    .await
+                    .map_err(|err| warp::reject::custom(BadRequest(err.into())))?;
                     Ok::<_, Rejection>((schema, request))
                 }
             },
