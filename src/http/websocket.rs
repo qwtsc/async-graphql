@@ -11,15 +11,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
-struct OperationMessage {
+struct OperationMessage<'a, T> {
     #[serde(rename = "type")]
-    ty: String,
+    ty: &'a str,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    payload: Option<serde_json::Value>,
+    payload: Option<T>,
 }
 
 type SubscriptionStreams = HashMap<String, Pin<Box<dyn Stream<Item = Response> + Send>>>;
@@ -156,18 +156,18 @@ where
                                 send_message(
                                     ctx.send_buf,
                                     &OperationMessage {
-                                        ty: "error".to_string(),
+                                        ty: "error",
                                         id: Some(id.to_string()),
-                                        payload: Some(serde_json::to_value(err).unwrap()),
+                                        payload: Some(err),
                                     },
                                 );
                             } else {
                                 send_message(
                                     ctx.send_buf,
                                     &OperationMessage {
-                                        ty: "data".to_string(),
+                                        ty: "data",
                                         id: Some(id.to_string()),
-                                        payload: Some(serde_json::to_value(&res).unwrap()),
+                                        payload: Some(&res),
                                     },
                                 );
                             }
@@ -177,9 +177,9 @@ where
                             send_message(
                                 ctx.send_buf,
                                 &OperationMessage {
-                                    ty: "complete".to_string(),
+                                    ty: "complete",
                                     id: Some(id.to_string()),
-                                    payload: None,
+                                    payload: Option::<serde_json::Value>::None,
                                 },
                             );
                         }
@@ -212,8 +212,8 @@ where
     Mutation: ObjectType + Send + Sync + 'static,
     Subscription: SubscriptionType + Send + Sync + 'static,
 {
-    match serde_json::from_slice::<OperationMessage>(&data) {
-        Ok(msg) => match msg.ty.as_str() {
+    match serde_json::from_slice::<OperationMessage<serde_json::Value>>(&data) {
+        Ok(msg) => match msg.ty {
             "connection_init" => {
                 if let Some(payload) = msg.payload {
                     *ctx.ctx_data = Arc::new(initializer(payload)?);
@@ -221,9 +221,9 @@ where
                 send_message(
                     ctx.send_buf,
                     &OperationMessage {
-                        ty: "connection_ack".to_string(),
+                        ty: "connection_ack",
                         id: None,
-                        payload: None,
+                        payload: Option::<serde_json::Value>::None,
                     },
                 );
             }
@@ -243,9 +243,9 @@ where
                         send_message(
                             ctx.send_buf,
                             &OperationMessage {
-                                ty: "complete".to_string(),
+                                ty: "complete",
                                 id: Some(id),
-                                payload: None,
+                                payload: Option::<serde_json::Value>::None,
                             },
                         );
                     }

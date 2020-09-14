@@ -232,8 +232,10 @@ pub struct ContextBase<'a, T> {
     pub(crate) inc_resolve_id: &'a AtomicUsize,
     #[doc(hidden)]
     pub item: T,
-    pub(crate) schema_env: &'a SchemaEnv,
-    pub(crate) query_env: &'a QueryEnv,
+    #[doc(hidden)]
+    pub schema_env: &'a SchemaEnv,
+    #[doc(hidden)]
+    pub query_env: &'a QueryEnv,
 }
 
 #[doc(hidden)]
@@ -517,9 +519,6 @@ impl<'a> ContextBase<'a, &'a Positioned<Field>> {
     /// }
     /// ```
     pub fn look_ahead(&self) -> Lookahead {
-        Lookahead {
-            document: &self.query_env.document,
-            field: Some(&self.item.node),
-        }
+        Lookahead::new(&self.query_env.document, &self.item.node)
     }
 }

@@ -1,8 +1,5 @@
-use crate::context::QueryEnv;
-use crate::{
-    registry, Context, Error, Pos, QueryError, Response, Result, SchemaEnv, SubscriptionType, Type,
-};
-use futures::Stream;
+use crate::{registry, Context, Error, Pos, QueryError, Result, SubscriptionType, Type};
+use futures::{stream, Stream};
 use std::borrow::Cow;
 use std::pin::Pin;
 
@@ -29,26 +26,24 @@ impl Type for EmptySubscription {
     }
 }
 
-#[async_trait::async_trait]
 impl SubscriptionType for EmptySubscription {
     fn is_empty() -> bool {
         true
     }
 
-    async fn create_field_stream(
-        &self,
-        _idx: usize,
-        _ctx: &Context<'_>,
-        _schema_env: SchemaEnv,
-        _query_env: QueryEnv,
-    ) -> Result<Pin<Box<dyn Stream<Item = Response> + Send>>>
+    fn create_field_stream<'a>(
+        &'a self,
+        _ctx: &'a Context<'a>,
+    ) -> Pin<Box<dyn Stream<Item = Result<serde_json::Value>> + Send + 'a>>
     where
         Self: Send + Sync + 'static + Sized,
     {
-        Err(Error::Query {
-            pos: Pos::default(),
-            path: None,
-            err: QueryError::NotConfiguredSubscriptions,
-        })
+        Box::pin(stream::once(async {
+            Err(Error::Query {
+                pos: Pos::default(),
+                path: None,
+                err: QueryError::NotConfiguredSubscriptions,
+            })
+        }))
     }
 }

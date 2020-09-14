@@ -51,7 +51,7 @@ impl Reject for BadRequest {}
 ///
 /// struct QueryRoot;
 ///
-/// #[Object]
+/// #[GQLObject]
 /// impl QueryRoot {
 ///     #[field]
 ///     async fn value(&self, ctx: &Context<'_>) -> i32 {
@@ -147,12 +147,12 @@ where
 ///
 /// struct QueryRoot;
 ///
-/// #[Object]
+/// #[GQLObject]
 /// impl QueryRoot {}
 ///
 /// struct SubscriptionRoot;
 ///
-/// #[Subscription]
+/// #[GQLSubscription]
 /// impl SubscriptionRoot {
 ///     #[field]
 ///     async fn tick(&self) -> impl Stream<Item = String> {
@@ -199,11 +199,10 @@ where
             |ws: warp::ws::Ws, schema: Schema<Query, Mutation, Subscription>, initializer: F| {
                 ws.on_upgrade(move |websocket| {
                     let (mut tx, rx) = websocket.split();
-                    let (mut stx, srx) =
-                        async_graphql::transports::websocket::create_with_initializer(
-                            &schema,
-                            initializer,
-                        );
+                    let (mut stx, srx) = async_graphql::http::websocket::create_with_initializer(
+                        &schema,
+                        initializer,
+                    );
 
                     let mut rx = rx.fuse();
                     let srx = srx.fuse();
