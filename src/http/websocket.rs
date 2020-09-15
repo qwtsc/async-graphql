@@ -4,7 +4,7 @@ use crate::resolver_utils::ObjectType;
 use crate::{Data, FieldResult, Request, Response, Schema, SubscriptionType};
 use futures::channel::mpsc;
 use futures::task::{Context, Poll};
-use futures::{Future, Stream, StreamExt};
+use futures::{Future, Sink, SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -24,15 +24,51 @@ struct OperationMessage<'a, T> {
 
 type SubscriptionStreams = HashMap<String, Pin<Box<dyn Stream<Item = Response> + Send>>>;
 
-type HandleRequestBoxFut<'a> =
-    Pin<Box<dyn Future<Output = FieldResult<WSContext<'a>>> + Send + 'a>>;
+type HandleRequestBoxFut = Pin<Box<dyn Future<Output = FieldResult<WSContext>> + Send>>;
 
 type InitializerFn = Arc<dyn Fn(serde_json::Value) -> FieldResult<Data> + Send + Sync>;
+
+/// A wrapper around an underlying raw stream which implements the WebSocket protocol.
+///
+/// Only Text messages can be transmitted. You can use `futures::stream::StreamExt::split` function
+/// to splits this object into separate Sink and Stream objects.
+pub struct WebSocketStream {
+    tx: mpsc::UnboundedSender<String>,
+    rx: Pin<Box<dyn Stream<Item = String> + Send>>,
+}
+
+impl Sink<String> for WebSocketStream {
+    type Error = mpsc::SendError;
+
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.tx.poll_ready_unpin(cx)
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: String) -> Result<(), Self::Error> {
+        self.tx.start_send(item)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.tx.poll_flush_unpin(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.tx.poll_close_unpin(cx)
+    }
+}
+
+impl Stream for WebSocketStream {
+    type Item = String;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.rx.poll_next_unpin(cx)
+    }
+}
 
 /// Create a websocket transport.
 pub fn create<Query, Mutation, Subscription>(
     schema: &Schema<Query, Mutation, Subscription>,
-) -> (mpsc::UnboundedSender<Vec<u8>>, impl Stream<Item = Vec<u8>>)
+) -> WebSocketStream
 where
     Query: ObjectType + Send + Sync + 'static,
     Mutation: ObjectType + Send + Sync + 'static,
@@ -45,66 +81,59 @@ where
 pub fn create_with_initializer<Query, Mutation, Subscription>(
     schema: &Schema<Query, Mutation, Subscription>,
     initializer: impl Fn(serde_json::Value) -> FieldResult<Data> + Send + Sync + 'static,
-) -> (mpsc::UnboundedSender<Vec<u8>>, impl Stream<Item = Vec<u8>>)
+) -> WebSocketStream
 where
     Query: ObjectType + Send + Sync + 'static,
     Mutation: ObjectType + Send + Sync + 'static,
     Subscription: SubscriptionType + Send + Sync + 'static,
 {
-    let schema = schema.clone();
-    let (tx_bytes, rx_bytes) = mpsc::unbounded();
-    let stream = async_stream::stream! {
-        let mut streams = Default::default();
-        let mut send_buf = Default::default();
-        let mut data = Arc::new(Data::default());
-        let mut inner_stream = SubscriptionStream {
-            schema: &schema,
+    let (tx, rx) = mpsc::unbounded();
+    WebSocketStream {
+        tx,
+        rx: SubscriptionStream {
+            schema: schema.clone(),
             initializer: Arc::new(initializer),
-            rx_bytes,
+            rx_bytes: rx,
             handle_request_fut: None,
             ctx: Some(WSContext {
-                streams: &mut streams,
-                send_buf: &mut send_buf,
-                ctx_data: &mut data,
+                streams: Default::default(),
+                send_buf: Default::default(),
+                ctx_data: Arc::new(Data::default()),
             }),
-        };
-        while let Some(data) = inner_stream.next().await {
-            yield data;
         }
-    };
-    (tx_bytes, stream)
+        .boxed(),
+    }
 }
 
-struct WSContext<'a> {
-    streams: &'a mut SubscriptionStreams,
-    send_buf: &'a mut VecDeque<Vec<u8>>,
-    ctx_data: &'a mut Arc<Data>,
+struct WSContext {
+    streams: SubscriptionStreams,
+    send_buf: VecDeque<String>,
+    ctx_data: Arc<Data>,
 }
 
-fn send_message<T: Serialize>(send_buf: &mut VecDeque<Vec<u8>>, msg: &T) {
-    if let Ok(data) = serde_json::to_vec(msg) {
+fn send_message<T: Serialize>(send_buf: &mut VecDeque<String>, msg: &T) {
+    if let Ok(data) = serde_json::to_string(msg) {
         send_buf.push_back(data);
     }
 }
 
 #[allow(missing_docs)]
 #[allow(clippy::type_complexity)]
-struct SubscriptionStream<'a, Query, Mutation, Subscription> {
-    schema: &'a Schema<Query, Mutation, Subscription>,
+struct SubscriptionStream<Query, Mutation, Subscription> {
+    schema: Schema<Query, Mutation, Subscription>,
     initializer: InitializerFn,
-    rx_bytes: mpsc::UnboundedReceiver<Vec<u8>>,
-    handle_request_fut: Option<HandleRequestBoxFut<'a>>,
-    ctx: Option<WSContext<'a>>,
+    rx_bytes: mpsc::UnboundedReceiver<String>,
+    handle_request_fut: Option<HandleRequestBoxFut>,
+    ctx: Option<WSContext>,
 }
 
-impl<'a, Query, Mutation, Subscription> Stream
-    for SubscriptionStream<'a, Query, Mutation, Subscription>
+impl<'a, Query, Mutation, Subscription> Stream for SubscriptionStream<Query, Mutation, Subscription>
 where
     Query: ObjectType + Send + Sync + 'static,
     Mutation: ObjectType + Send + Sync + 'static,
     Subscription: SubscriptionType + Send + Sync + 'static,
 {
-    type Item = Vec<u8>;
+    type Item = String;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = &mut *self;
@@ -154,7 +183,7 @@ where
                             if let Some(err) = &res.error {
                                 closed.push(id.to_string());
                                 send_message(
-                                    ctx.send_buf,
+                                    &mut ctx.send_buf,
                                     &OperationMessage {
                                         ty: "error",
                                         id: Some(id.to_string()),
@@ -163,7 +192,7 @@ where
                                 );
                             } else {
                                 send_message(
-                                    ctx.send_buf,
+                                    &mut ctx.send_buf,
                                     &OperationMessage {
                                         ty: "data",
                                         id: Some(id.to_string()),
@@ -175,7 +204,7 @@ where
                         Poll::Ready(None) => {
                             closed.push(id.to_string());
                             send_message(
-                                ctx.send_buf,
+                                &mut ctx.send_buf,
                                 &OperationMessage {
                                     ty: "complete",
                                     id: Some(id.to_string()),
@@ -201,25 +230,25 @@ where
     }
 }
 
-async fn handle_request<'a, Query, Mutation, Subscription>(
+async fn handle_request<Query, Mutation, Subscription>(
     schema: Schema<Query, Mutation, Subscription>,
     initializer: InitializerFn,
-    ctx: WSContext<'a>,
-    data: Vec<u8>,
-) -> FieldResult<WSContext<'a>>
+    mut ctx: WSContext,
+    data: String,
+) -> FieldResult<WSContext>
 where
     Query: ObjectType + Send + Sync + 'static,
     Mutation: ObjectType + Send + Sync + 'static,
     Subscription: SubscriptionType + Send + Sync + 'static,
 {
-    match serde_json::from_slice::<OperationMessage<serde_json::Value>>(&data) {
+    match serde_json::from_str::<OperationMessage<serde_json::Value>>(&data) {
         Ok(msg) => match msg.ty {
             "connection_init" => {
                 if let Some(payload) = msg.payload {
-                    *ctx.ctx_data = Arc::new(initializer(payload)?);
+                    ctx.ctx_data = Arc::new(initializer(payload)?);
                 }
                 send_message(
-                    ctx.send_buf,
+                    &mut ctx.send_buf,
                     &OperationMessage {
                         ty: "connection_ack",
                         id: None,
@@ -241,7 +270,7 @@ where
                 if let Some(id) = msg.id {
                     if ctx.streams.remove(&id).is_some() {
                         send_message(
-                            ctx.send_buf,
+                            &mut ctx.send_buf,
                             &OperationMessage {
                                 ty: "complete",
                                 id: Some(id),
