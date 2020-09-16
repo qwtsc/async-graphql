@@ -4,12 +4,13 @@ mod graphiql_source;
 #[cfg(feature = "multipart")]
 mod multipart;
 mod playground_source;
-pub mod websocket;
+mod websocket;
 
 pub use graphiql_source::graphiql_source;
 #[cfg(feature = "multipart")]
 pub use multipart::{receive_multipart, MultipartOptions};
 pub use playground_source::{playground_source, GraphQLPlaygroundConfig};
+pub use websocket::WebSocketStream;
 
 use crate::{ParseRequestError, Request};
 use futures::io::AsyncRead;
@@ -20,6 +21,7 @@ use futures::AsyncReadExt;
 /// If the content type is multipart it will use `receive_multipart`, otherwise it will use
 /// `receive_json`.
 #[cfg(feature = "multipart")]
+#[cfg_attr(feature = "nightly", doc(cfg(feature = "multipart")))]
 pub async fn receive_body(
     content_type: Option<impl AsRef<str>>,
     body: impl AsyncRead + Send + 'static,
