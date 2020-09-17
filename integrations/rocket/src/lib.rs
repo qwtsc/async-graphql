@@ -247,7 +247,7 @@ impl FromData for GQLRequest {
 
         let limit = req.limits().get("graphql");
         let stream = data.open(limit.unwrap_or_else(|| 128.kibibytes()));
-        let request = async_graphql::http::receive_body(
+        let request = async_graphql::http::receive(
             req.headers().get_one("Content-Type"),
             stream.compat(),
             MultipartOptions::clone(&opts),

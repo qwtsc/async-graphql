@@ -108,7 +108,7 @@ impl<State: Clone + Send + Sync + 'static> RequestExt<State> for Request<State> 
             let content_type = self
                 .header(&headers::CONTENT_TYPE)
                 .and_then(|values| values.get(0).map(|value| value.to_string()));
-            async_graphql::http::receive_body(content_type, self, opts)
+            async_graphql::http::receive(content_type, self, opts)
                 .await
                 .map_err(|err| tide::Error::new(StatusCode::BadRequest, err))
         }

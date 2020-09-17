@@ -1,6 +1,6 @@
 use crate::parser::types::UploadValue;
 use crate::{Data, Value, Variables};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::any::Any;
 use std::fs::File;
 
@@ -84,6 +84,35 @@ impl Request {
 impl<T: Into<String>> From<T> for Request {
     fn from(query: T) -> Self {
         Self::new(query)
+    }
+}
+
+/// Batch support for GraphQL requests, which is either a single query, or an array of queries
+///
+/// **Reference:** <https://github.com/jaydenseric/graphql-multipart-request-spec>
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum BatchRequest {
+    /// Single query
+    Single(Request),
+
+    /// Non-empty array of queries
+    #[serde(deserialize_with = "deserialize_non_empty_vec")]
+    Batch(Vec<Request>),
+}
+
+fn deserialize_non_empty_vec<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    use serde::de::Error as _;
+
+    let v = Vec::<T>::deserialize(deserializer)?;
+    if v.is_empty() {
+        Err(D::Error::invalid_length(0, &"a positive integer"))
+    } else {
+        Ok(v)
     }
 }
 

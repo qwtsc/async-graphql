@@ -118,7 +118,7 @@ where
                         .map_err(|err| warp::reject::custom(BadRequest(err.into())))?;
                     Ok::<_, Rejection>((schema, request))
                 } else {
-                    let request = async_graphql::http::receive_body(
+                    let request = async_graphql::http::receive(
                         content_type,
                         futures::TryStreamExt::map_err(body, |err| io::Error::new(ErrorKind::Other, err))
                             .map_ok(|mut buf| Buf::to_bytes(&mut buf))

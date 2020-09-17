@@ -1,4 +1,5 @@
 use crate::{CacheControl, Error, Result};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Query response
 #[derive(Debug, Default)]
@@ -87,4 +88,15 @@ impl From<Error> for Response {
     fn from(err: Error) -> Self {
         Self::from_error(err)
     }
+}
+
+/// Response for batchable queries
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum BatchResponse {
+    /// Response for single queries
+    Single(Response),
+
+    /// Response for batch queries
+    Batch(Vec<Response>),
 }
